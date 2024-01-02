@@ -14,7 +14,7 @@
 #define INTEGR_MIN 0
 #define INTEGR_MAX UCHAR_MAX
 
-// #define PROCESS_FLOW_FIELD_SECS 2.0f
+#define PROCESS_FLOW_FIELD_SECS 0.1f
 
 typedef struct {
     int index;
@@ -160,8 +160,8 @@ void UpdateFlowField(FlowField *field) {
         return;
     }
 
+    //////////////////////////////// CALCULATE INTEGRATION FIELD
     CellList *list = NewCellList();
-    // int target_index = field->target;
 
     // 1) Set all cells to max value.
     memset(field->integrCells, INTEGR_MAX, sizeof(unsigned char) * field->arraySize);
@@ -198,26 +198,69 @@ void UpdateFlowField(FlowField *field) {
 
         FreeCellItem(center);
     }
-
     FreeCellList(list);
+
+    //////////////////////////////// CALCULATE FLOW FIELD
+    for (int index=0; index<field->arraySize; index++) {
+        // Ignore walls
+        if (field->integrCells[index] == INTEGR_MAX) {
+            field->flowCells[index] = Vector2Zero();
+            continue;
+        }
+
+        int neighbors[8] = { 0 };
+        int count = 0;
+        GetCellNeighbors(field, index, neighbors, &count);
+
+        Vector2 cell_total = { 0 };
+        for (int i=0;i<count;i++) {
+            int neighbor_index = neighbors[i];
+            int cell_size = field->cellSize;
+            int origin_x = (index / field->cols * cell_size) + (cell_size / 2);
+            int origin_y = (index % field->rows * cell_size) + (cell_size / 2);
+            int target_x = (neighbors[i] / field->cols * cell_size) + (cell_size / 2);
+            int target_y = (neighbors[i] % field->rows * cell_size) + (cell_size / 2);
+
+            Vector2 origin_point = { (float)origin_x, (float)origin_y };
+            Vector2 target_point = {  (float)target_x, (float)target_y };
+            Vector2 neighbor_vec = Vector2Scale(Vector2Subtract(origin_point, target_point), field->integrCells[neighbor_index]);
+            cell_total = Vector2Add(cell_total, neighbor_vec);
+        }
+        field->flowCells[index] = Vector2Normalize(cell_total);
+    }
 }
 
 void DrawFlowField(FlowField *field, int channel) {
     for (int index=0; index<field->arraySize; index++) {
         int i = index / field->cols;
         int j = index % field->rows;
-        int cellSize = field->cellSize;
+        int cell_size = field->cellSize;
 
-        if (channel == 0 || channel == 2) {
+        if (channel == 0) {
             int v = field->costCells[index];
             Color fillColor = ColorFromHSV(320.0f, 0.4f, Remap((float)v, COST_MIN, COST_MAX, 1.0f, 0.0f));
-            DrawRectangle(i * cellSize, j * cellSize, cellSize, cellSize, fillColor);
-            DrawText(TextFormat("%d", v), i * cellSize + 10, j * cellSize + 10, 10, WHITE);
-        } else if (channel == 1) {
+            DrawRectangle(i * cell_size, j * cell_size, cell_size, cell_size, fillColor);
+            DrawText(TextFormat("%d", v), i * cell_size + 10, j * cell_size + 10, 10, WHITE);
+        } else if (channel == 1 || channel == 2) {
             int v = field->integrCells[index];
             Color fillColor = ColorFromHSV(214.0f, 0.8f, Remap((float)v, INTEGR_MIN, INTEGR_MAX, 1.0f, 0.0f));
-            DrawRectangle(i * cellSize, j * cellSize, cellSize, cellSize, fillColor);
-            DrawText(TextFormat("%d", v), i * cellSize + 10, j * cellSize + 10, 10, WHITE);
+            DrawRectangle(i * cell_size, j * cell_size, cell_size, cell_size, fillColor);
+            if (channel == 1) {
+                DrawText(TextFormat("%d", v), i * cell_size + 10, j * cell_size + 10, 10, WHITE);
+            } else {
+                int offset_x = (index / field->cols * cell_size) + (cell_size / 2);
+                int offset_y = (index % field->rows * cell_size) + (cell_size / 2);
+
+                if (Vector2LengthSqr(field->flowCells[index]) != 0.0f) {
+                    Vector2 dir = Vector2Scale(field->flowCells[index], 10.0f);
+                    int dir_x = (int)dir.x;
+                    int dir_y = (int)dir.y;
+                    DrawRectangle(offset_x + dir_x - 2, offset_y + dir_y - 2, 4, 4, WHITE);
+                    DrawLine(offset_x, offset_y, offset_x + dir_x, offset_y + dir_y, WHITE);
+                } else {
+                    DrawCircle(offset_x, offset_y, 2.0f, WHITE);
+                }
+            }
         }
     }
 }
@@ -234,9 +277,9 @@ int main() {
 
     FlowField *field = NewFlowField(DEMO_ROWS, DEMO_COLS, DEMO_SIZE);
 
-    int fieldDrawingChannel = 0;
+    int fieldDrawingChannel = 2;
     unsigned char intensity = COST_MAX;
-    // float process_flow_field_timer = 0.0f;
+    float process_flow_field_timer = 0.0f;
     while (!WindowShouldClose()) {
         BeginDrawing();
         {
@@ -259,16 +302,13 @@ int main() {
                 fieldDrawingChannel = 0;
             } else if (IsKeyDown(KEY_F2)) {
                 fieldDrawingChannel = 1;
-            } else if (IsKeyDown(KEY_F2)) {
+            } else if (IsKeyDown(KEY_F3)) {
                 fieldDrawingChannel = 2;
             }
 
-            // process_flow_field_timer += GetFrameTime();
-            // if (process_flow_field_timer >= PROCESS_FLOW_FIELD_SECS) {
-            //     process_flow_field_timer = 0.0f;
-            //     TraceLog(LOG_INFO, "Processing flow field");
-            // }
-            if (IsKeyPressed(KEY_SPACE)) {
+            process_flow_field_timer += GetFrameTime();
+            if (process_flow_field_timer >= PROCESS_FLOW_FIELD_SECS) {
+                process_flow_field_timer = 0.0f;
                 UpdateFlowField(field);
             }
 
