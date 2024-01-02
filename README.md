@@ -14,3 +14,7 @@ cmake -DCMAKE_BUILD_TYPE=debug -B cmake-build-debug
 cmake --build cmake-build-debug 
 ```
 Done.
+
+## TODO List
+
+* Integration field appears to not be properly calculated on wall borders.
